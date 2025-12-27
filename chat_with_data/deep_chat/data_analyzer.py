@@ -922,16 +922,15 @@ class ChatWithData:
             print(f"调用大模型分类查询失败: {e}")
             return 0
 
-
     def get_analysis_plan(self, query: str) -> Dict[str, Any]:
         """
-        根据用户查询和DataFrame信息，使用OpenAI API生成分析计划和回应
+        根据用户查询和DataFrame信息，使用LLM API生成分析计划和回应
 
-        参数:
-        query: 用户的自然语言查询
+        Args:
+            query: 用户的自然语言查询
 
-        返回:
-        包含content、function和parameters的字典
+        Returns:
+            包含content、function和parameters的字典
         """
         # 构造DataFrame信息
         df_info = {
@@ -959,42 +958,50 @@ class ChatWithData:
                     metadata_for_api.append(formatted_item)
 
         try:
+            # 导入必要的模块
+            from common.llm_call import handler
+            from openai import OpenAI
+            from common.config import OPENAI_API_KEY
+
+            # 创建OpenAI客户端（用于Function Call）
+            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
             # 构造API请求
             response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",  # 或其他支持Function Call的模型
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": """
-                    你是一个专业的数据分析助手。你的唯一任务是将用户的自然语言数据分析请求转换为相应的函数调用，不生成任何其他文本内容。
+    你是一个专业的数据分析助手。你的唯一任务是将用户的自然语言数据分析请求转换为相应的函数调用，不生成任何其他文本内容。
 
-                    严格要求：
-                    1. 不要生成任何解释、分析或建议
-                    2. 不要回复任何文本
-                    3. 只返回函数调用
-                    4. 强制使用函数调用，不允许普通文本回复
+    严格要求：
+    1. 不要生成任何解释、分析或建议
+    2. 不要回复任何文本
+    3. 只返回函数调用
+    4. 强制使用函数调用，不允许普通文本回复
 
-                    关于数据结构：
-                    1. DataFrame的列名代表的是"指标"(indicator)，而非直接的变量
-                    2. 元数据包含：指标、指标用于测量的变量、指标描述、统计单位、指标数据来源
+    关于数据结构：
+    1. DataFrame的列名代表的是"指标"(indicator)，而非直接的变量
+    2. 元数据包含：指标、指标用于测量的变量、指标描述、统计单位、指标数据来源
 
-                    请只使用DataFrame中实际存在的列名(指标)进行分析。
+    请只使用DataFrame中实际存在的列名(指标)进行分析。
                     """},
                     {"role": "user", "content": f"""
-                    以下是DataFrame的信息：
+    以下是DataFrame的信息：
 
-                    列名和数据类型: {json.dumps(df_info['columns'], ensure_ascii=False)}
-                    数值型指标: {df_info['numeric_cols']}
-                    分类型指标: {df_info['categorical_cols']}
-                    行数: {df_info['rows']}
+    列名和数据类型: {json.dumps(df_info['columns'], ensure_ascii=False)}
+    数值型指标: {df_info['numeric_cols']}
+    分类型指标: {df_info['categorical_cols']}
+    行数: {df_info['rows']}
 
-                    指标元数据信息: {json.dumps(metadata_for_api, ensure_ascii=False, indent=2)}
+    指标元数据信息: {json.dumps(metadata_for_api, ensure_ascii=False, indent=2)}
 
-                    用户的查询是: "{query}"
+    用户的查询是: "{query}"
 
-                    只返回函数调用，不要返回任何文本内容。
+    只返回函数调用，不要返回任何文本内容。
                     """}
                 ],
                 functions=function_descriptions,
-                function_call="auto"  # 强制使用函数调用
+                function_call="auto"
             )
 
             # 解析响应
@@ -1019,8 +1026,10 @@ class ChatWithData:
                     for func in function_descriptions:
                         if func['name'] == function_name:
                             # 不包含explanation
-                            valid_params = [prop for prop in func['parameters']['properties'].keys()
-                                            if prop != 'explanation']
+                            valid_params = [
+                                prop for prop in func['parameters']['properties'].keys()
+                                if prop != 'explanation'
+                            ]
                             break
 
                     # 清理参数，只保留有效参数
@@ -1042,8 +1051,6 @@ class ChatWithData:
                 "function": None,
                 "parameters": {}
             }
-
-
     def execute_analysis(self, analysis_plan: Dict[str, Any]) -> Dict[str, Any]:
         """
         执行分析计划
